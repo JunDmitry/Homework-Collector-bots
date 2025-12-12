@@ -10,6 +10,7 @@ public class TransportationTaskAssigner<T> : IDisposable
     private readonly ICoroutineRunner _coroutineStarter;
 
     private bool _disposed = false;
+    private int _requestWorkerCount = 0;
 
     public TransportationTaskAssigner(ICoroutineRunner coroutineStarter)
     {
@@ -30,7 +31,7 @@ public class TransportationTaskAssigner<T> : IDisposable
 
     public event Action<ITransportationWorker<T>> BecameFreeWorker;
 
-    public int CountFreeWorkers => _freeWorkers.Count;
+    public int CountFreeWorkers => _freeWorkers.Count - _requestWorkerCount;
     public int CountBusyWorkers => _busyWorkers.Count;
 
     public void AddWorker(ITransportationWorker<T> worker)
@@ -48,6 +49,20 @@ public class TransportationTaskAssigner<T> : IDisposable
         ThrowIfDisposed();
 
         return _freeWorkers.Contains(worker) == false && _busyWorkers.Contains(worker) == false;
+    }
+
+    public IEnumerator TakeFreeWorker(Action<ITransportationWorker<T>> takeAction)
+    {
+        ThrowIf.Null(takeAction, nameof(takeAction));
+
+        _requestWorkerCount++;
+
+        while (CountFreeWorkers < 0)
+            yield return null;
+
+        ITransportationWorker<T> workerForTake = _freeWorkers.Dequeue();
+        takeAction(workerForTake);
+        _requestWorkerCount--;
     }
 
     public bool IsBusy(ITransportationWorker<T> worker)

@@ -10,10 +10,11 @@ public class ResourceSpawner : IDisposable
     private readonly WaitForSeconds _waitInterval;
 
     private readonly RandomPicker<ObjectPool<Resource>> _resourcePicker;
-    private readonly ObservableList<ObjectPool<Resource>> _observableList;
-    private readonly Area _area;
+    private readonly List<IEventSubscription> _subscriptions;
 
+    private Area _area;
     private Coroutine _spawnCoroutine = null;
+    private IEventAggregator _eventAggregator;
 
     public ResourceSpawner(ResourceSpawnerConfig config, ICoroutineRunner coroutineRunner)
         : this(config, UnityEngine.Random.Range(int.MinValue, int.MaxValue), coroutineRunner)
@@ -21,16 +22,15 @@ public class ResourceSpawner : IDisposable
 
     public ResourceSpawner(ResourceSpawnerConfig config, int seed, ICoroutineRunner coroutineRunner)
     {
-        ResourcePoolSubscriber resourcePoolSubscriber = new(
-            r => r.transform.SetPositionAndRotation(_area.RandomPosition(), UnityEngine.Random.rotation));
-
         _config = config;
         _coroutineStarter = coroutineRunner;
         _area = config.SpawnArea;
         _waitInterval = new(config.SpawnInterval);
-        _observableList = new(resourcePoolSubscriber.CreateSubscribeProvider, coroutineRunner);
         _resourcePicker = new(seed);
+        _subscriptions = new();
     }
+
+    public Area SpawnArea => _area;
 
     public bool Enabled { get; private set; }
 
@@ -41,13 +41,10 @@ public class ResourceSpawner : IDisposable
 
         Enabled = true;
 
-        _resourcePicker.Values.ForEach(o =>
-        {
-            _observableList.Subscribe(o);
-            o.Initialize();
-        });
+        SubscribeAll();
 
         _spawnCoroutine = _coroutineStarter?.StartCoroutine(Spawn());
+        _resourcePicker.Values.ForEach(o => o.Initialize());
     }
 
     public void Disable()
@@ -56,16 +53,19 @@ public class ResourceSpawner : IDisposable
             return;
 
         Enabled = false;
-        _observableList?.Unsubscribe();
 
         _coroutineStarter?.StopCoroutine(_spawnCoroutine);
         _spawnCoroutine = null;
+
+        _subscriptions.ForEach(s => s?.Unsubscribe());
+        _subscriptions.Clear();
     }
 
-    public void Initialize(IAssetProvider assetProvider, ISingleParameterFactory<ObjectPool<Resource>, Resource> poolFactory)
+    public void Initialize(IAssetProvider assetProvider, ISingleParameterFactory<ObjectPool<Resource>, Resource> poolFactory, IEventAggregator eventAggregator)
     {
         Clear();
         _area.InitializeIfNeed();
+        _eventAggregator = eventAggregator;
 
         Dictionary<ItemDeliverableType, ResourceWeight> weightsMap = _config.GetWeightsAsDictionary();
         assetProvider
@@ -80,6 +80,7 @@ public class ResourceSpawner : IDisposable
 
     public void Dispose()
     {
+        _resourcePicker.Values.ForEach(o => o?.Dispose());
         Disable();
         Clear();
     }
@@ -87,7 +88,6 @@ public class ResourceSpawner : IDisposable
     public void Clear()
     {
         _resourcePicker?.Clear();
-        _observableList?.Clear();
     }
 
     private IEnumerator Spawn()
@@ -104,5 +104,51 @@ public class ResourceSpawner : IDisposable
 
             yield return _waitInterval;
         }
+    }
+
+    private void SubscribeAll()
+    {
+        _subscriptions.Add(_eventAggregator.Subscribe(new AlwaysTrueCondition<UnitCreatedEvent<BaseStructure>>(), OnStructureCteated));
+        _subscriptions.Add(_eventAggregator.Subscribe(new AlwaysTrueCondition<PoolObjectCreatedEvent<Resource>>(), OnResourceCreated));
+        _subscriptions.Add(_eventAggregator.Subscribe(new AlwaysTrueCondition<PoolObjectGettedEvent<Resource>>(), OnResourceGetted));
+        _subscriptions.Add(_eventAggregator.Subscribe(new AlwaysTrueCondition<PoolObjectReleasedEvent<Resource>>(), OnResourceReleased));
+    }
+
+    private void OnStructureCteated(UnitCreatedEvent<BaseStructure> unitCreatedEvent)
+    {
+        ThrowIf.Null(unitCreatedEvent, nameof(unitCreatedEvent));
+
+        if (_area.IsIntersect(unitCreatedEvent.CreatedUnit.TotalArea) == false)
+            return;
+
+        Area newArea = _area.Exclude(unitCreatedEvent.CreatedUnit.TotalArea);
+
+        _area = newArea;
+        _area.InitializeIfNeed();
+    }
+
+    private void OnResourceCreated(PoolObjectCreatedEvent<Resource> poolResourceCreated)
+    {
+        Resource resource = poolResourceCreated.PoolObject;
+
+        resource.gameObject.SetActive(false);
+        resource.Initialize(_eventAggregator);
+    }
+
+    private void OnResourceGetted(PoolObjectGettedEvent<Resource> poolResourceGetted)
+    {
+        Resource resource = poolResourceGetted.PoolObject;
+        ObjectPool<Resource> objectPool = poolResourceGetted.ObjectPool;
+
+        poolResourceGetted.PoolObject.transform.SetPositionAndRotation(_area.RandomPosition(), UnityEngine.Random.rotation);
+        resource.gameObject.SetActive(true);
+    }
+
+    private void OnResourceReleased(PoolObjectReleasedEvent<Resource> poolResourceReleased)
+    {
+        Resource resource = poolResourceReleased.PoolObject;
+        ObjectPool<Resource> objectPool = poolResourceReleased.ObjectPool;
+
+        resource.gameObject.SetActive(false);
     }
 }

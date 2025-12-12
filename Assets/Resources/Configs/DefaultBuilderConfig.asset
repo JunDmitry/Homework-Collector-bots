@@ -1,0 +1,28 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 2696bcfeb87f04c46b46b1868823fa5a, type: 3}
+  m_Name: DefaultBuilderConfig
+  m_EditorClassIdentifier: 
+  _basePrefab: {fileID: 7012593554456502964, guid: e6bb26600f27eff4e9565feb74e071d6, type: 3}
+  _baseInfo:
+    _spendContext:
+      _stoneCount: 2
+      _woodCount: 1
+      _ironCount: 2
+    _buildTimeInSeconds: 20
+  _workerPrefab: {fileID: 6266532278410578958, guid: 68f804b2faef18e4990ca05b4893e994, type: 3}
+  _workerInfo:
+    _spendContext:
+      _stoneCount: 1
+      _woodCount: 2
+      _ironCount: 0
+    _buildTimeInSeconds: 10

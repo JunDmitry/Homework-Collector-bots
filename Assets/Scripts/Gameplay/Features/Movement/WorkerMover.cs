@@ -7,14 +7,17 @@ public class WorkerMover
 {
     private readonly NavMeshAgent _agent;
     private readonly WorkerAnimator _animator;
+    private readonly ICoroutineRunner _coroutineRunner;
     private readonly float _stopDistance;
 
     private bool _isMoving;
+    private IEnumerator _moveRoutine;
 
-    public WorkerMover(NavMeshAgent agent, WorkerAnimator animator, float stopDistance = .1f)
+    public WorkerMover(NavMeshAgent agent, WorkerAnimator animator, ICoroutineRunner coroutineRunner, float stopDistance = .1f)
     {
         _agent = agent;
         _animator = animator;
+        _coroutineRunner = coroutineRunner;
         _stopDistance = stopDistance;
         _agent.autoBraking = true;
     }
@@ -30,8 +33,11 @@ public class WorkerMover
 
     public IEnumerator MoveTo(Vector3 target, float? overrideStopDistance = null)
     {
-        if (_isMoving)
-            Stop();
+        if (_moveRoutine != null)
+        {
+            _coroutineRunner.StopCoroutine(_moveRoutine);
+            _moveRoutine = null;
+        }
 
         _isMoving = true;
         IsSuccessfulMove = false;
@@ -41,7 +47,9 @@ public class WorkerMover
         _agent.isStopped = false;
         _agent.SetDestination(target);
 
-        yield return BeginMovementCompleteRoutine(overrideStopDistance ?? _stopDistance);
+        _moveRoutine = BeginMovementCompleteRoutine(overrideStopDistance ?? _stopDistance);
+
+        yield return _moveRoutine;
     }
 
     public void Stop()
@@ -56,7 +64,17 @@ public class WorkerMover
 
     private IEnumerator BeginMovementCompleteRoutine(float stopDistance)
     {
-        yield return new WaitUntil(() => _agent.hasPath);
+        float waitingMaxSeconds = 5f;
+        float waitingCurrentSeconds = 0f;
+
+        while (waitingCurrentSeconds < waitingMaxSeconds && _agent.hasPath == false)
+        {
+            waitingCurrentSeconds += Time.deltaTime;
+            yield return null;
+        }
+
+        if (_agent.hasPath == false && waitingCurrentSeconds > waitingMaxSeconds)
+            Stop();
 
         while (_agent.hasPath
             && _agent.remainingDistance > stopDistance
@@ -79,6 +97,7 @@ public class WorkerMover
 
     private void CompleteMovement()
     {
+        _moveRoutine = null;
         _isMoving = false;
         _agent.isStopped = true;
         _agent.ResetPath();

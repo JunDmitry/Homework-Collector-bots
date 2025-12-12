@@ -15,6 +15,8 @@ public class TransportationTask<T> : IDisposable
 
     public event Action<TransportationTask<T>, ITransportationWorker<T>> Completed;
 
+    public T Target => _context.Item;
+
     public IEnumerator Work(ITransportationWorker<T> worker)
     {
         DeliveryOperation<T> loadOperation = _context.Source.PrepareDelivery(_context.Item);
