@@ -11,6 +11,12 @@ public struct Rectangle
     private Vector2? _bottomLeft;
     private Bounds? _bounds;
 
+    public Rectangle(Vector2 topLeft, Vector2 bottomRight) : this()
+    {
+        _topLeft = topLeft;
+        _bottomRight = bottomRight;
+    }
+
     public Vector2 TopLeft
     {
         get
@@ -57,6 +63,7 @@ public struct Rectangle
 
     public float Width => TopRight.x - TopLeft.x;
     public float Height => TopRight.y - BottomRight.y;
+
     public Bounds Bounds
     {
         get
@@ -70,7 +77,7 @@ public struct Rectangle
 
     private Bounds GetBounds()
     {
-        float ySize = .001f;
+        float ySize = .1f;
         float xCenter = TopLeft.x + Width / 2;
         float zCenter = BottomRight.y + Height / 2;
 

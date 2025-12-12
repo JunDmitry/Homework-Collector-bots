@@ -3,27 +3,48 @@ using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
 
-public class Storage<T> : IItemDestination<T>
+public class Storage<T> : IDisposable, IItemDestination<T>, IOwnerEventSource<ChangedResourceCountEvent>
     where T : IDeliverable
 {
     private const int PositiveCount = 1;
 
     private readonly Dictionary<ItemDeliverableType, int> _resourceMap;
+    private readonly OwnerInfo _ownerInfo;
+    private readonly IEventAggregator _eventAggregator;
+
     private Func<Vector3> _getPosition;
     private float _minDistanceToArrive;
 
-    public Storage()
+    public Storage(OwnerInfo ownerInfo, IEventAggregator eventAggregator)
     {
         _resourceMap = Utils.GenerateEmptyDeliverableMap();
+        _ownerInfo = ownerInfo;
+        _eventAggregator = eventAggregator;
+        _eventAggregator.RegisterSource(this);
     }
 
-    public Storage(IEnumerable<KeyValuePair<ItemDeliverableType, int>> resources)
-        : this()
+    public Storage(OwnerInfo ownerInfo, IEventAggregator eventAggregator, IEnumerable<KeyValuePair<ItemDeliverableType, int>> resources)
+        : this(ownerInfo, eventAggregator)
     {
         resources.ForEach(pair => AddResource(pair.Key, pair.Value));
     }
 
-    public event Action<ItemDeliverableType, int> ChangedResourceCount;
+    private event Action<ChangedResourceCountEvent> _changedResourceCount;
+
+    event Action<ChangedResourceCountEvent> IEventSource<ChangedResourceCountEvent>.EventRaised
+    {
+        add => _changedResourceCount += value;
+        remove => _changedResourceCount -= value;
+    }
+
+    int IOwnerEventSource<ChangedResourceCountEvent>.OwnerInstanceId => _ownerInfo.InstanceId;
+
+    bool IEventSource<ChangedResourceCountEvent>.IsActive => true;
+
+    public void Dispose()
+    {
+        _eventAggregator.UnregisterSource(this);
+    }
 
     public DeliveryOperation<T> PrepareReceival(T item)
     {
@@ -41,6 +62,13 @@ public class Storage<T> : IItemDestination<T>
     public void AddResource(T resource)
     {
         AddResource(resource.ItemDeliverableType, resource.Count);
+    }
+
+    public void AddResource(ItemDeliverableType type, int count)
+    {
+        _resourceMap[type] += count;
+
+        _changedResourceCount?.Invoke(new(type, _resourceMap[type]));
     }
 
     public bool TryTakeResourceStrict(ItemDeliverableType type, int countForTake)
@@ -99,16 +127,10 @@ public class Storage<T> : IItemDestination<T>
         yield return null;
     }
 
-    private void AddResource(ItemDeliverableType type, int count)
-    {
-        _resourceMap[type] += count;
-
-        ChangedResourceCount?.Invoke(type, _resourceMap[type]);
-    }
-
     private void TakeResource(ItemDeliverableType type, int count)
     {
         _resourceMap[type] -= count;
+        _changedResourceCount?.Invoke(new(type, _resourceMap[type]));
     }
 
     private void ThrowIfInvalidArguments(ItemDeliverableType type, int countForTake)

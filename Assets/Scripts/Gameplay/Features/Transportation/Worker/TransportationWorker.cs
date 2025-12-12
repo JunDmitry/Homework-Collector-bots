@@ -4,7 +4,7 @@ using UnityEngine;
 using UnityEngine.AI;
 
 [RequireComponent(typeof(NavMeshAgent))]
-public class TransportationWorker : MonoBehaviour, ITransportationWorker<Resource>
+public class TransportationWorker : MonoBehaviour, ITransportationWorker<Resource>, ICoroutineRunner
 {
     [SerializeField] private GrabPoint _grabPoint;
     [SerializeField] private WorkerAnimator _workerAnimator;
@@ -18,7 +18,7 @@ public class TransportationWorker : MonoBehaviour, ITransportationWorker<Resourc
 
     private void Awake()
     {
-        _mover = new(GetComponent<NavMeshAgent>(), _workerAnimator);
+        _mover = new(GetComponent<NavMeshAgent>(), _workerAnimator, this);
         _resourceBaggage = new(
             _transportationEventHandler,
             r =>

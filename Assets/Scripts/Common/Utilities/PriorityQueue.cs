@@ -7,10 +7,13 @@ namespace Assets.Scripts.Common.Utilities
     public sealed class PriorityQueue<TValue, TPriority> : IEnumerable<TValue>
         where TPriority : IComparable
     {
+        private readonly object _lock = new();
+
         private List<TValue> _values;
         private List<TPriority> _priorities;
-
         private IComparer<TPriority> _comparer;
+
+        private int _count;
 
         public PriorityQueue() : this(1)
         { }
@@ -40,75 +43,155 @@ namespace Assets.Scripts.Common.Utilities
             _comparer = comparer;
         }
 
-        public int Count { get; private set; }
-        public int Capacity => _values.Capacity;
+        public int Count
+        {
+            get
+            {
+                lock (_lock)
+                {
+                    return _count;
+                }
+            }
+            private set
+            {
+                lock (_lock)
+                {
+                    _count = value;
+                }
+            }
+        }
+
+        public int Capacity
+        {
+            get
+            {
+                lock (_lock)
+                {
+                    return _values.Capacity;
+                }
+            }
+        }
 
         public void Enqueue(TValue value, TPriority priority)
         {
-            _values.Add(value);
-            _priorities.Add(priority);
+            lock (_lock)
+            {
+                _values.Add(value);
+                _priorities.Add(priority);
 
-            ShiftUp(Count);
-            Count++;
+                Count++;
+                ShiftUp(Count);
+            }
         }
 
         public TValue DequeueFirst()
         {
-            if (Count == 0)
-                throw new IndexOutOfRangeException($"Count element in {nameof(PriorityQueue<TValue, TPriority>)} is zero!");
+            lock (_lock)
+            {
+                if (Count == 0)
+                    throw new IndexOutOfRangeException($"Count element in {nameof(PriorityQueue<TValue, TPriority>)} is zero!");
 
-            TValue result = _values[0];
+                TValue result = _values[0];
 
-            Count--;
-            _values[0] = _values[Count];
-            _priorities[0] = _priorities[Count];
-            ShiftDown(0);
+                Count--;
+                _values[0] = _values[Count];
+                _priorities[0] = _priorities[Count];
+                _values.RemoveAt(Count);
+                _priorities.RemoveAt(Count);
 
-            _values.RemoveAt(Count);
-            _priorities.RemoveAt(Count);
+                ShiftDown(0);
 
-            return result;
+                return result;
+            }
         }
 
         public TValue DequeueLast()
         {
-            if (Count == 0)
-                throw new IndexOutOfRangeException($"Count element in {nameof(PriorityQueue<TValue, TPriority>)} is zero!");
+            lock (_lock)
+            {
+                if (Count == 0)
+                    throw new IndexOutOfRangeException($"Count element in {nameof(PriorityQueue<TValue, TPriority>)} is zero!");
 
-            Count--;
-            _values.RemoveAt(Count);
-            _priorities.RemoveAt(Count);
+                Count--;
 
-            return _values[Count];
+                TValue result = _values[Count];
+                _values.RemoveAt(Count);
+                _priorities.RemoveAt(Count);
+
+                return result;
+            }
         }
 
         public TValue PeekFirst()
         {
-            if (Count == 0)
-                throw new IndexOutOfRangeException($"Count element in {nameof(PriorityQueue<TValue, TPriority>)} is zero!");
+            lock (_lock)
+            {
+                if (Count == 0)
+                    throw new IndexOutOfRangeException($"Count element in {nameof(PriorityQueue<TValue, TPriority>)} is zero!");
 
-            return _values[0];
+                return _values[0];
+            }
         }
 
         public TValue PeekLast()
         {
-            if (Count == 0)
-                throw new IndexOutOfRangeException($"Count element in {nameof(PriorityQueue<TValue, TPriority>)} is zero!");
+            lock (_lock)
+            {
+                if (Count == 0)
+                    throw new IndexOutOfRangeException($"Count element in {nameof(PriorityQueue<TValue, TPriority>)} is zero!");
 
-            return _values[Count - 1];
+                return _values[Count - 1];
+            }
+        }
+
+        public bool Remove(TValue value)
+        {
+            lock (_lock)
+            {
+                int index = _values.IndexOf(value);
+
+                if (index < 0 || index >= Count)
+                    return false;
+
+                return RemoveAt(index);
+            }
         }
 
         public void Clear()
         {
-            _values.Clear();
-            _priorities.Clear();
-            _comparer = default;
-            Count = 0;
+            lock (_lock)
+            {
+                _values.Clear();
+                _priorities.Clear();
+                _comparer = default;
+                Count = 0;
+            }
         }
 
         public IEnumerator<TValue> GetEnumerator()
         {
-            return _values.GetEnumerator();
+            TValue[] snapshot;
+
+            lock (_lock)
+            {
+                snapshot = new TValue[_values.Count];
+                PriorityQueue<TValue, TPriority> values = Clone();
+
+                for (int i = 0; i < _values.Count; i++)
+                    snapshot[i] = values.DequeueFirst();
+            }
+
+            return ((IEnumerable<TValue>)snapshot).GetEnumerator();
+        }
+
+        public PriorityQueue<TValue, TPriority> Clone()
+        {
+            PriorityQueue<TValue, TPriority> copy = new(_values.Count, _comparer);
+
+            for (int i = 0; i < _values.Count; i++)
+                copy.Enqueue(_values[i], _priorities[i]);
+
+            return copy;
         }
 
         IEnumerator IEnumerable.GetEnumerator()
@@ -116,11 +199,26 @@ namespace Assets.Scripts.Common.Utilities
             return GetEnumerator();
         }
 
+        private bool RemoveAt(int index)
+        {
+            Count--;
+            _values[index] = _values[Count];
+            _priorities[index] = _priorities[Count];
+
+            _values.RemoveAt(Count);
+            _priorities.RemoveAt(Count);
+
+            ShiftUp(index);
+            ShiftDown(index);
+
+            return true;
+        }
+
         private void ShiftUp(int i)
         {
             int parentIndex;
 
-            while (i > 0 && _comparer.Compare(_priorities[Parent(i)], _priorities[i]) < 0)
+            while (i < Count && i > 0 && _comparer.Compare(_priorities[Parent(i)], _priorities[i]) < 0)
             {
                 parentIndex = Parent(i);
                 Swap(i, parentIndex);
@@ -136,10 +234,10 @@ namespace Assets.Scripts.Common.Utilities
             int left = LeftChild(i);
             int right = RightChild(i);
 
-            if (left <= Count && _comparer.Compare(_priorities[left], _priorities[maxIndex]) > 0)
+            if (left < Count && _comparer.Compare(_priorities[left], _priorities[maxIndex]) > 0)
                 maxIndex = left;
 
-            if (right <= Count && _comparer.Compare(_priorities[right], _priorities[maxIndex]) > 0)
+            if (right < Count && _comparer.Compare(_priorities[right], _priorities[maxIndex]) > 0)
                 maxIndex = right;
 
             if (i != maxIndex)

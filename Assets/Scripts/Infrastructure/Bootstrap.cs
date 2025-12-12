@@ -3,29 +3,33 @@ using UnityEngine;
 
 public class Bootstrap : MonoBehaviour, ICoroutineRunner
 {
-    private const float MinInterval = .1f;
-
     [SerializeField] private BaseStructure _baseStructure;
     [SerializeField] private TransportationWorker _baseWorkerPrefab;
     [SerializeField] private World _world;
     [SerializeField] private ResourceSpawnerConfig _resourceSpawnerConfig;
+    [SerializeField] private InputReader _inputReader;
 
-    [SerializeField, Min(0)] private float _scanRadius;
-    [SerializeField, Min(MinInterval)] private float _scanInterval = MinInterval;
-
+    [SerializeField] private CanvasGroup _panelGroup;
     [SerializeField] private StorageView _storageViewTemplate;
     [SerializeField] private ResourceTaskManagementView _resourceTaskManagementViewTemplate;
 
+    private readonly List<IPresenter> _presenters = new();
+
     private AssetProvider _assetProvider;
     private StaticDataProvider _staticDataProvider;
-    private SingleParameterFactory<ObjectPool<Resource>, Resource> _resourcePoolFactory;
+
+    private ISingleParameterFactory<ObjectPool<Resource>, Resource> _resourcePoolFactory;
+    private ITwoParametersFactory<ITransportationWorker<Resource>, TransportationWorker, Vector3> _workerFactory;
+
     private ResourceSpawner _resourceSpawner;
 
-    private readonly List<IPresenter> _presenters = new();
+    private IntelligentEventAggregator _eventAggregator;
+    private SubscriptionInstaller _subscriptionInstaller;
 
     private void Awake()
     {
         InitializeInfrastructure();
+        InitializeInput();
         InitializeFactories();
         InitializeGameplay();
         InitializeBase();
@@ -50,81 +54,64 @@ public class Bootstrap : MonoBehaviour, ICoroutineRunner
     private void OnDestroy()
     {
         _presenters.ForEach(p => p.Dispose());
+        _subscriptionInstaller?.Dispose();
     }
 
     private void OnDrawGizmosSelected()
     {
         Gizmos.color = Color.yellow * new Color(1, 1, 1, .1f);
-        Gizmos.DrawSphere(transform.position, _scanRadius);
+        Gizmos.DrawSphere(transform.position, _baseStructure.ScanInfo.ScanRadius);
     }
 
     private void InitializeInfrastructure()
     {
         _assetProvider = new AssetProvider();
         _staticDataProvider = new StaticDataProvider();
+        _eventAggregator = new();
 
         _staticDataProvider.LoadAll();
+        _subscriptionInstaller = new SubscriptionInstaller(_eventAggregator);
+
+        ISingleParameterFactory<IPresenter, Structure> structurePresenterFactory = new BaseStructurePresenterFactory(
+            _panelGroup,
+            _storageViewTemplate,
+            _resourceTaskManagementViewTemplate,
+            _eventAggregator,
+            new ObjectInstantiator());
+        _presenters.Add(new SelectedStructurePanelPresenter(_eventAggregator, structurePresenterFactory.Create));
+    }
+
+    private void InitializeInput()
+    {
+        _inputReader.Initialize(_eventAggregator);
     }
 
     private void InitializeFactories()
     {
-        _resourcePoolFactory = new(r => new(() => Instantiate(r)));
+        _resourcePoolFactory = new SingleParameterFactory<ObjectPool<Resource>, Resource>(r => new(() => Instantiate(r), _eventAggregator));
+        _workerFactory = new TwoParametersFactory<ITransportationWorker<Resource>, TransportationWorker, Vector3>(
+            (prefab, position) => Instantiate(prefab, position, Quaternion.identity));
     }
 
     private void InitializeGameplay()
     {
         _resourceSpawner = new ResourceSpawner(_resourceSpawnerConfig, this);
-        _resourceSpawner.Initialize(_assetProvider, _resourcePoolFactory);
+        _resourceSpawner.Initialize(_assetProvider, _resourcePoolFactory, _eventAggregator);
         _resourceSpawner.Enable();
     }
 
     private void InitializeBase()
     {
-        IScanner scanner = new Scanner(_scanRadius);
-        IntervalScanner<Resource> intervalScanner = new(
-            scanner, _scanInterval,
-            () => _baseStructure.transform.position,
-            _baseStructure);
+        BaseStructureInitializer initializer = new(_eventAggregator, this, _workerFactory);
 
-        SingleParameterFactory<TransportationTask<Resource>, DeliveryContext<Resource>> taskFactory = new(c => new(c));
-        TaskQueue<Resource> taskQueue = new(taskFactory);
-        TransportationTaskAssigner<Resource> taskAssigner = new(_baseStructure);
-        Storage<Resource> resourceStorage = new();
-        Factory<ITransportationWorker<Resource>> workerFactory = new(
-            () => CreateTransportationWorker(_baseWorkerPrefab));
+        initializer.Initialize(_baseStructure);
 
-        TaskManagement<Resource> taskManagement = new(taskQueue, taskAssigner, resourceStorage, _baseStructure);
-
-        _baseStructure.Initialize(intervalScanner, resourceStorage, workerFactory, taskManagement);
-        _baseStructure.EnableLogics();
-
-        InitializeBaseUI(resourceStorage, taskManagement);
+        using FakeSource<UnitCreatedEvent<BaseStructure>> fakeSource = new(_eventAggregator);
+        fakeSource.Invoke(new(_baseStructure));
     }
 
     private void InitializeWorld()
     {
-        _world.Initialize(_resourceSpawner);
-    }
-
-    private void InitializeBaseUI(Storage<Resource> storage, TaskManagement<Resource> taskManagement)
-    {
-        StorageView storageView = Instantiate(_storageViewTemplate, _baseStructure.transform);
-        ResourceTaskManagementView taskManagementView = Instantiate(_resourceTaskManagementViewTemplate, _baseStructure.transform);
-
-        ResourceStoragePresenter resourcePresenter = new(storage, storageView);
-        ResourceTaskManagementPresenter resourceTaskManagementPresenter = new(taskManagementView, taskManagement);
-
-        resourcePresenter.Initialize();
-        resourceTaskManagementPresenter.Initialize();
-
-        _presenters.Add(resourcePresenter);
-        _presenters.Add(resourceTaskManagementPresenter);
-    }
-
-    private ITransportationWorker<Resource> CreateTransportationWorker(TransportationWorker prefab)
-    {
-        TransportationWorker instance = Instantiate(prefab, _baseStructure.WaitArea, Quaternion.identity);
-
-        return instance;
+        _world.Initialize(_resourceSpawner, _eventAggregator);
     }
 }

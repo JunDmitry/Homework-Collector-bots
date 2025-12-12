@@ -14,6 +14,8 @@ public class GizmosAreaDrawer : MonoBehaviour
         Gizmos.color = Color.red * new Color(1, 1, 1, .5f);
 
         foreach (Rectangle rectangle in _spawnerConfigToDraw.SpawnArea)
+        {
             Gizmos.DrawCube(rectangle.Bounds.center + _spawnerPosition, rectangle.Bounds.size);
+        }
     }
 }

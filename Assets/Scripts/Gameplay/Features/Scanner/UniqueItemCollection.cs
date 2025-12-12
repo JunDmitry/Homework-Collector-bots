@@ -3,16 +3,18 @@ using System.Collections.Generic;
 using UnityEngine;
 
 public class UniqueItemCollection<T> : IDisposable
-    where T : Component, ICollectedEvent<T>
+    where T : Component
 {
-    private readonly Dictionary<T, ISubscribeProvider> _items;
+    private readonly HashSet<T> _items;
     private readonly ISubscribeProvider _scannerSubscription;
     private readonly IntervalScanner<T> _intervalScanner;
+    private readonly IEventAggregator _eventAggregator;
+    private readonly List<IEventSubscription> _subscriptions;
 
     private bool _enabled;
     private bool _disposed;
 
-    public UniqueItemCollection(IntervalScanner<T> intervalScanner)
+    public UniqueItemCollection(IntervalScanner<T> intervalScanner, IEventAggregator eventAggregator)
     {
         ThrowIf.Null(intervalScanner, nameof(intervalScanner));
 
@@ -23,6 +25,8 @@ public class UniqueItemCollection<T> : IDisposable
             (s, h) => s.FoundedItem += h,
             (s, h) => s.FoundedItem -= h);
         _intervalScanner = intervalScanner;
+        _eventAggregator = eventAggregator;
+        _subscriptions = new();
     }
 
     public event Action<T> FoundedUniqueItem;
@@ -35,7 +39,8 @@ public class UniqueItemCollection<T> : IDisposable
             return;
 
         _enabled = true;
-        _items.Values.ForEach(s => s.Subscribe());
+
+        SubscribeAll();
         _scannerSubscription.Subscribe();
         _intervalScanner.BeginScan();
     }
@@ -46,7 +51,7 @@ public class UniqueItemCollection<T> : IDisposable
             return;
 
         _enabled = false;
-        _items.Values.ForEach(s => s.Unsubscribe());
+        UnsubscribeAll();
         _scannerSubscription.Unsubscribe();
         _intervalScanner.StopScan();
     }
@@ -57,29 +62,34 @@ public class UniqueItemCollection<T> : IDisposable
             return;
 
         _disposed = true;
-        _items.Values.ForEach(s => s.Dispose());
+        _subscriptions.ForEach(s => s.Dispose());
         _scannerSubscription?.Dispose();
         _intervalScanner.StopScan();
     }
 
     private void OnFoundedItem(T item)
     {
-        if (item == null || _items.ContainsKey(item))
+        if (item == null || _items.Contains(item))
             return;
 
-        ISubscribeProvider provider = SubscribeProvider<T, Action<T>>.Create(
-            item,
-            i =>
-            {
-                IDisposable disposable = _items[item];
-                _items.Remove(item);
-                disposable?.Dispose();
-            },
-            (s, h) => s.Collected += h,
-            (s, h) => s.Collected -= h);
-        _items[item] = provider;
-        provider.Subscribe();
-
+        _items.Add(item);
         FoundedUniqueItem?.Invoke(item);
+    }
+
+    private void SubscribeAll()
+    {
+        _subscriptions.Add(_eventAggregator.Subscribe(new AlwaysTrueCondition<CollectedEvent<T>>(), OnCollectedItem));
+    }
+
+    private void UnsubscribeAll()
+    {
+        _subscriptions.ForEach(s => s.Unsubscribe());
+    }
+
+    private void OnCollectedItem(CollectedEvent<T> collectedEvent)
+    {
+        T item = collectedEvent.CollectedItem;
+
+        _items.Remove(item);
     }
 }

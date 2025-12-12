@@ -13,14 +13,14 @@ MonoBehaviour:
   m_Name: DefaultResourceSpawnerConfig
   m_EditorClassIdentifier: 
   _woodWeight:
-    _singleCountWeight: 110
+    _singleCountWeight: 95
     _weightDivisionMultiplierPerCount: 0.75
   _stoneWeight:
     _singleCountWeight: 100
     _weightDivisionMultiplierPerCount: 1
   _ironWeight:
-    _singleCountWeight: 75
-    _weightDivisionMultiplierPerCount: 1
+    _singleCountWeight: 90
+    _weightDivisionMultiplierPerCount: 0.5
   _resourceAssetPaths:
   - Prefabs/Resource/StoneResource
   - Prefabs/Resource/WoodResource
@@ -30,9 +30,7 @@ MonoBehaviour:
   - Prefabs/Resource/MediumIronResource
   _spawnArea:
     _rectangles:
-    - _topLeft: {x: -22.5, y: 22.5}
-      _bottomRight: {x: 0, y: -47.5}
-    - _topLeft: {x: 0, y: 0}
-      _bottomRight: {x: 22.5, y: -47.5}
+    - _topLeft: {x: -72.5, y: 105}
+      _bottomRight: {x: 72.5, y: -112.5}
     _height: 2
-  _spawnInterval: 5
+  _spawnInterval: 4

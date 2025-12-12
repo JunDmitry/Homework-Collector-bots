@@ -3,15 +3,14 @@ using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
 
-public class TaskManagement<T> : IDisposable, IOnFoundedUniqueItemHandler<T>, IOnCreatedWorker<T>
+public class TaskManagement<T> : IDisposable, IOnFoundedUniqueItemHandler<T>, IOwnerEventSource<UpdatedCountInfoEvent>
     where T : Component, IDeliverable, IIntractable
 {
     private readonly ICoroutineRunner _coroutineRunner;
+    private readonly IEventAggregator _eventAggregator;
 
     private readonly TaskQueue<T> _taskQueue;
     private readonly TransportationTaskAssigner<T> _taskAssigner;
-    private readonly Dictionary<TransportationTask<T>, ISubscribeProvider> _subscriptionAtTask;
-    private readonly List<ISubscribeProvider> _subscriptions;
 
     private readonly IThreeParametersFactory<DeliveryContext<T>, T, IItemSource<T>, IItemDestination<T>> _contextFactory;
     private readonly ISingleParameterFactory<TransportationTask<T>, DeliveryContext<T>> _taskFactory;
@@ -20,18 +19,18 @@ public class TaskManagement<T> : IDisposable, IOnFoundedUniqueItemHandler<T>, IO
     private readonly IItemDestination<T> _itemDestination;
     private readonly TaskManagementInfo _taskManagementInfo;
 
-    private Func<Vector3> _getWaitPosition;
-    private WaitForSeconds _waitAssignInterval;
-    private Vector3 _ownerPosition;
+    private TaskEventManagement<T> _taskEventManagement;
+    private TaskCoroutineManagament<T> _taskCoroutineManagement;
+    private OwnerInfo _ownerInfo;
 
     private bool _disposed;
-    private Coroutine _assignTaskRoutine = null;
 
     public TaskManagement(
         TaskQueue<T> taskQueue,
         TransportationTaskAssigner<T> taskAssigner,
         IItemDestination<T> itemDestination,
-        ICoroutineRunner coroutineRunner)
+        ICoroutineRunner coroutineRunner,
+        IEventAggregator eventAggregator)
     {
         ThrowIf.Null(taskQueue, nameof(taskQueue));
         ThrowIf.Null(taskAssigner, nameof(taskAssigner));
@@ -42,10 +41,8 @@ public class TaskManagement<T> : IDisposable, IOnFoundedUniqueItemHandler<T>, IO
         _taskAssigner = taskAssigner;
         _itemDestination = itemDestination;
         _coroutineRunner = coroutineRunner;
-
-        _subscriptionAtTask = new();
+        _eventAggregator = eventAggregator;
         _itemSource = new();
-        _subscriptions = new();
         _taskManagementInfo = new();
 
         _contextFactory = new ThreeParametersFactory<DeliveryContext<T>, T, IItemSource<T>, IItemDestination<T>>(
@@ -54,25 +51,41 @@ public class TaskManagement<T> : IDisposable, IOnFoundedUniqueItemHandler<T>, IO
             c => new(c));
     }
 
-    public event Action<IReadonlyTaskManagementInfo> UpdatedCountInfo;
+    private Action<UpdatedCountInfoEvent> _updatedCountInfo;
 
+    event Action<UpdatedCountInfoEvent> IEventSource<UpdatedCountInfoEvent>.EventRaised
+    {
+        add => _updatedCountInfo += value;
+        remove => _updatedCountInfo -= value;
+    }
+
+    int IOwnerEventSource<UpdatedCountInfoEvent>.OwnerInstanceId => _ownerInfo.InstanceId;
+
+    bool IEventSource<UpdatedCountInfoEvent>.IsActive => Enabled;
     public bool Enabled { get; private set; }
+    public int CountFreeWorkers => _taskAssigner.CountFreeWorkers;
+    public int TotalCountWorkers => CountFreeWorkers + _taskAssigner.CountBusyWorkers;
 
     public void Initialize(
         Func<Vector3> getWaitPosition,
         float assignInterval,
         IEnumerable<ISubscribeProvider> subscriptions,
-        Vector3 ownerPosition)
+        OwnerInfo ownerInfo)
     {
         ThrowIf.Null(getWaitPosition, nameof(getWaitPosition));
         ThrowIf.Null(subscriptions, nameof(subscriptions));
 
-        _getWaitPosition = getWaitPosition;
-        _waitAssignInterval = new(assignInterval);
-        _subscriptions.AddRange(subscriptions);
-        _ownerPosition = ownerPosition;
+        _ownerInfo = ownerInfo;
 
-        InitializeSubscriptions();
+        TaskManagementContext<T> taskManagementContext = new(
+            _coroutineRunner, _eventAggregator,
+            _ownerInfo, _taskQueue,
+            _taskAssigner, _taskManagementInfo,
+            c => _updatedCountInfo?.Invoke(c), assignInterval);
+        _taskEventManagement = new TaskEventManagement<T>(taskManagementContext);
+        _taskCoroutineManagement = new TaskCoroutineManagament<T>(taskManagementContext);
+
+        _taskEventManagement.Initialize(getWaitPosition, subscriptions);
         InitializeIfEnabled();
     }
 
@@ -82,8 +95,10 @@ public class TaskManagement<T> : IDisposable, IOnFoundedUniqueItemHandler<T>, IO
             return;
 
         Enabled = true;
-        _subscriptions.ForEach(s => s.Subscribe());
-        _assignTaskRoutine = _coroutineRunner.StartCoroutine(AssignTaskRoutine());
+
+        _taskCoroutineManagement?.Enable();
+        _taskEventManagement?.Enable();
+        _eventAggregator.RegisterSource(this);
     }
 
     public void Disable()
@@ -92,12 +107,10 @@ public class TaskManagement<T> : IDisposable, IOnFoundedUniqueItemHandler<T>, IO
             return;
 
         Enabled = false;
-        _subscriptions.ForEach(s =>
-        {
-            if (s.IsSubscribed)
-                s.Unsubscribe();
-        });
-        _coroutineRunner?.StopCoroutine(_assignTaskRoutine);
+
+        _taskCoroutineManagement?.Disable();
+        _taskEventManagement?.Disable();
+        _eventAggregator.UnregisterSource(this);
     }
 
     public void Dispose()
@@ -106,46 +119,33 @@ public class TaskManagement<T> : IDisposable, IOnFoundedUniqueItemHandler<T>, IO
             return;
 
         _disposed = true;
-        _subscriptions.ForEach(s => s.Dispose());
-        _subscriptionAtTask.ForEach(pair => pair.Value.Dispose());
 
-        if (_assignTaskRoutine != null)
-            _coroutineRunner?.StopCoroutine(_assignTaskRoutine);
+        _taskCoroutineManagement?.Dispose();
+        _taskEventManagement?.Dispose();
+        _eventAggregator.UnregisterSource(this);
+    }
+
+    public IEnumerator TakeFreeWorkerRoutine(Action<ITransportationWorker<T>> action)
+    {
+        ThrowIf.Null(action, nameof(action));
+
+        yield return _taskAssigner.TakeFreeWorker(action);
     }
 
     public void OnFoundedUniqueItem(T item)
     {
         DeliveryContext<T> context = _contextFactory.Create(item, _itemSource, _itemDestination);
         TransportationTask<T> task = _taskFactory.Create(context);
-        float priority = (item.transform.position - _ownerPosition).sqrMagnitude;
+        float priority = (item.transform.position - _ownerInfo.Position).sqrMagnitude;
 
         _taskQueue.Enqueue(task, priority);
-        _taskManagementInfo.AddReadyToAssign();
-        UpdatedCountInfo?.Invoke(_taskManagementInfo);
 
-        ISubscribeProvider provider = SubscribeProvider<TransportationTask<T>, Action<TransportationTask<T>, ITransportationWorker<T>>>.Create(
-            task,
-            (t, w) =>
-            {
-                _taskManagementInfo.MoveToCompleted();
-                UpdatedCountInfo?.Invoke(_taskManagementInfo);
-
-                t.Dispose();
-                _subscriptionAtTask[t]?.Dispose();
-                _subscriptionAtTask.Remove(t);
-            },
-            (s, h) => s.Completed += h,
-            (s, h) => s.Completed -= h);
-        _subscriptionAtTask[task] = provider;
-
-        provider.Subscribe();
-    }
-
-    public void OnCreatedWorker(ITransportationWorker<T> worker)
-    {
-        ThrowIf.Null(worker, nameof(worker));
-
-        _taskAssigner.AddWorker(worker);
+        _taskEventManagement.SubscribeForTask(task, (t, w) =>
+        {
+            _taskManagementInfo.MoveToCompleted();
+            t.Dispose();
+            _taskEventManagement.UnsubscribeForTask(task);
+        });
     }
 
     private void InitializeIfEnabled()
@@ -153,37 +153,7 @@ public class TaskManagement<T> : IDisposable, IOnFoundedUniqueItemHandler<T>, IO
         if (Enabled == false)
             return;
 
-        _subscriptions.ForEach(s => s.Subscribe());
-        _assignTaskRoutine = _coroutineRunner?.StartCoroutine(AssignTaskRoutine());
-    }
-
-    private IEnumerator AssignTaskRoutine()
-    {
-        TransportationTask<T> task;
-
-        while (Enabled)
-        {
-            while (_taskQueue.ReadyToAssignCount > 0 && _taskAssigner.CanAssignTask())
-            {
-                task = _taskQueue.Dequeue();
-                _taskAssigner.AssignTask(task);
-
-                _taskManagementInfo.MoveToAssigned();
-                UpdatedCountInfo?.Invoke(_taskManagementInfo);
-            }
-
-            yield return _waitAssignInterval;
-        }
-    }
-
-    private void InitializeSubscriptions()
-    {
-        ISubscribeProvider workerProvider = SubscribeProvider<TransportationTaskAssigner<T>, Action<ITransportationWorker<T>>>.Create(
-            _taskAssigner,
-             w => _coroutineRunner.StartCoroutine(w.MoveTo(_getWaitPosition())),
-            (s, h) => s.BecameFreeWorker += h,
-            (s, h) => s.BecameFreeWorker -= h);
-
-        _subscriptions.Add(workerProvider);
+        _taskEventManagement.Enable();
+        _taskCoroutineManagement.Enable();
     }
 }
