@@ -15,6 +15,6 @@ limit-results = 30
 
 [preprocessor.mermaid]
 command = "mdbook-mermaid"
-optional = true
+render_diagrams = true
 
 [preprocessor.links]
