@@ -1,0 +1,20 @@
+[book]
+title = "Collector Bots"
+authors = ["Dmitry Rysev"]
+language = "en"
+src = "src"
+
+[output.html]
+default-theme = "light"
+preferred-dark-theme = "navy"
+git-repository-url = "https://github.com/yourusername/CollectorBots"
+edit-url-template = "https://github.com/yourusername/CollectorBots/edit/main/src/{path}"
+
+[output.html.search]
+limit-results = 30
+
+[preprocessor.mermaid]
+command = "mdbook-mermaid"
+optional = true
+
+[preprocessor.links]
