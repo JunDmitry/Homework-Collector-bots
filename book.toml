@@ -13,8 +13,8 @@ edit-url-template = "https://github.com/yourusername/CollectorBots/edit/main/src
 [output.html.search]
 limit-results = 30
 
-[preprocessor.mermaid]
-command = "mdbook-mermaid"
-render_diagrams = true
+# [preprocessor.mermaid]
+# command = "mdbook-mermaid"
+# render_diagrams = true
 
 [preprocessor.links]
