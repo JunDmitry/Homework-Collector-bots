@@ -39,7 +39,7 @@ jobs:
       - name: Install mdbook and plugins
         run: |
           cargo install mdbook --version 0.4.36
-          cargo install mdbook-mermaid
+          cargo install mdbook-mermaid --version 0.13.0
           
       - name: Setup Pages
         id: pages
