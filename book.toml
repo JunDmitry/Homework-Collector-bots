@@ -10,14 +10,10 @@ preferred-dark-theme = "navy"
 git-repository-url = "https://github.com/yourusername/CollectorBots"
 edit-url-template = "https://github.com/yourusername/CollectorBots/edit/main/src/{path}"
 
-[output.html.search]
-limit-results = 30
-
 [output.html]
 additional-js = ["mermaid-init.js"]
 
-# [preprocessor.mermaid]
-# command = "mdbook-mermaid"
-# render_diagrams = true
+[output.html.search]
+limit-results = 30
 
 [preprocessor.links]
