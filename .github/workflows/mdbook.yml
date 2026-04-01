@@ -44,7 +44,12 @@ jobs:
       - name: Setup Pages
         id: pages
         uses: actions/configure-pages@v5
-        
+
+      - name: Check versions
+        run: |
+          mdbook --version
+          mdbook-mermaid --version
+      
       - name: Build with mdBook
         run: mdbook build
         
