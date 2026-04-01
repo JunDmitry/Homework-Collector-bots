@@ -10,7 +10,7 @@ graph TD
     B --> C[Infrastructure Layer]
     C --> D[Gameplay Layer]
     C --> E[Common Utilities]
-    
+
     subgraph Infrastructure
         C1[Event Aggregator]
         C2[Object Pool]
