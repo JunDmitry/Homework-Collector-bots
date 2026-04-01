@@ -9,8 +9,6 @@ default-theme = "light"
 preferred-dark-theme = "navy"
 git-repository-url = "https://github.com/yourusername/CollectorBots"
 edit-url-template = "https://github.com/yourusername/CollectorBots/edit/main/src/{path}"
-
-[output.html]
 additional-js = ["mermaid-init.js"]
 
 [output.html.search]
