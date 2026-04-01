@@ -13,6 +13,9 @@ edit-url-template = "https://github.com/yourusername/CollectorBots/edit/main/src
 [output.html.search]
 limit-results = 30
 
+[output.html]
+additional-js = ["mermaid-init.js"]
+
 # [preprocessor.mermaid]
 # command = "mdbook-mermaid"
 # render_diagrams = true
