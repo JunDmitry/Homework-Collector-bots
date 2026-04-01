@@ -39,16 +39,16 @@ jobs:
       - name: Install mdbook and plugins
         run: |
           cargo install mdbook --version ${{ env.MDBOOK_VERSION }}
-          cargo install mdbook-mermaid
+          # cargo install mdbook-mermaid
           
       - name: Setup Pages
         id: pages
         uses: actions/configure-pages@v5
 
-      - name: Check versions
-        run: |
-          mdbook --version
-          mdbook-mermaid --version
+      # - name: Check versions
+      #   run: |
+      #     mdbook --version
+      #     mdbook-mermaid --version
       
       - name: Build with mdBook
         run: mdbook build
