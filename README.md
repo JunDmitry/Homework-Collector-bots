@@ -1,3 +1,3 @@
 # Homework-Collector-bots
 
-[Документация (Document)](https://github.com/JunDmitry/Homework-Collector-bots/blob/main/src/SUMMARY.md)
+[Сайт с удобной навигацией](https://jundmitry.github.io/Homework-Collector-bots/)
